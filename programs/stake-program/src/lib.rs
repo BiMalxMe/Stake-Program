@@ -3,7 +3,7 @@ use anchor_lang::system_program::{Transfer,transfer};
 
 declare_id!("ELvizMGwAUf3qrBkFQ5HKMmTvPzee5thNRpJ5ko1Ai9J");
 
-const SOLANA_PER_DAY: u64 = 1_000_000;
+const SOLANA_PER_DAY: u64 = 1_000_000;// Micropoiints 
 const SECONDS_PER_DAY: u64 = 86_400;
 const LAMPORTS_PER_SOL: u64 = 1_000_000_000;
 
@@ -119,6 +119,48 @@ pub mod stake_program {
 
         Ok(())
     }
+    pub fn claim_points(ctx: Context<ClaimPoints>) -> Result<()> {
+        let pda_account = &mut ctx.accounts.pda_account;
+        let clock = Clock::get()?;
+    
+        // update points to current time
+        update_points(pda_account, clock.unix_timestamp)?;
+    
+        // Convert micro-points to actual points
+        let claimable_points = pda_account.total_points / 1_000_000;
+    
+        msg!("User has {} claimable points", claimable_points);
+    
+        // reset total_points after claiming
+        pda_account.total_points = 0;
+    
+        Ok(())
+    }
+    
+    pub fn get_points(ctx: Context<GetPoints>) -> Result<()> {
+        let pda_account = &ctx.accounts.pda_account;
+        let clock = Clock::get()?;
+    
+        // calculate pending points without updating account
+        let time_elapsed = clock.unix_timestamp
+            .checked_sub(pda_account.last_update_time)
+            .ok_or(StakeError::InvalidTimestamp)? as u64;
+    
+        let new_points = calculate_points_earned(pda_account.staked_amount, time_elapsed)?;
+        let current_total_points = pda_account.total_points
+            .checked_add(new_points)
+            .ok_or(StakeError::Overflow)?;
+    
+        // Convert micro-points to actual points
+        msg!(
+            "Current points: {}, Staked amount: {} SOL",
+            current_total_points / 1_000_000,
+            pda_account.staked_amount / LAMPORTS_PER_SOL
+        );
+    
+        Ok(())
+    }
+    
 }
 
 // creating a pda that stores the users data
@@ -186,4 +228,30 @@ pub struct Unstake<'info>{
     //for transferring sol
     pub system_program : Program<'info,System>,
 
+}
+#[derive(Accounts)]
+pub struct ClaimPoints<'info> {
+    // User claiming Points
+    #[account(mut)]
+    pub user: Signer<'info>,
+
+    // User's PDA account
+    #[account(
+        mut,
+        seeds = [b"user1", user.key().as_ref()],
+        bump = pda_account.bump,
+        constraint = pda_account.owner == user.key() @ StakeError::Unauthorized
+    )]
+    pub pda_account: Account<'info, StakeAccount>,
+}
+#[derive(Accounts)]
+pub struct GetPoints<'info> {
+    pub user: Signer<'info>,
+
+    #[account(
+        seeds = [b"user1", user.key().as_ref()],
+        bump = pda_account.bump,
+        constraint = pda_account.owner == user.key() @ StakeError::Unauthorized
+    )]
+    pub pda_account: Account<'info, StakeAccount>,
 }
