@@ -9,7 +9,6 @@ const LAMPORTS_PER_SOL: u64 = 1_000_000_000;
 
 #[program]
 pub mod stake_program {
-    use anchor_lang::solana_program::example_mocks::solana_sdk::system_program;
 
     use super::*;
 
@@ -69,6 +68,57 @@ pub mod stake_program {
             Ok(())
 
     }
+    pub fn unstake(ctx : Context<Unstake> , amount : u64) -> Result<()>{
+
+        // unstake amount should be gerater then 0
+        require!(amount > 0, StakeError::InvalidAmount);
+
+        //Pda mut ref
+        let pda_account = &mut ctx.accounts.pda_account;
+        let clock = Clock::get()?;
+
+        // staked should be grater than withdrawll
+        require!(
+          pda_account.staked_amount >= amount,
+            StakeError::InsufficientStake
+         );
+
+        //Update points earned so far before changing staked amount
+        update_points(pda_account, clock.unix_timestamp)?;
+
+        let seeds = &[
+            b"user1",
+            ctx.accounts.user.key().as_ref(),
+            &[pda_account.bump],
+        ];
+        //converts to (&[&[u8]]),
+        let signer = &[&seeds[..]];
+
+        //new transaction from pda to user
+        let cpi_context = CpiContext::new_with_signer(
+            ctx.accounts.system_program.to_account_info(),
+            Transfer {
+                from: ctx.accounts.pda_account.to_account_info(),
+                to: ctx.accounts.user.to_account_info(),
+            },
+            signer,
+        );
+        transfer(cpi_context, amount)?;
+
+        // update PDA staked amount
+        pda_account.staked_amount = pda_account.staked_amount
+        //subtract
+         .checked_sub(amount)
+           .ok_or(StakeError::Underflow)?;
+
+        msg!(
+            "Unstaked {} lamports reaminaing is {} lamports",
+            amount,
+            pda_account.staked_amount
+        );
+
+        Ok(())
+    }
 }
 
 // creating a pda that stores the users data
@@ -101,6 +151,26 @@ pub struct CreatePdaAcc<'info> {
 #[derive(Accounts)]
 pub struct Stake<'info>{
     //user who is staking
+    #[account(mut)]
+    pub user : Signer<'info>,
+
+    //users pda accoutn
+    #[account(
+        mut,
+        seeds = [b"user1", user.key().as_ref()],
+        bump = pda_account.bump,
+        constraint = pda_account.owner == user.key() @ StakeError::Unauthorized
+    )]
+    pub pda_account : Account<'info,StakeAccount>,
+
+    //for transferring sol
+    pub system_program : Program<'info,System>,
+
+}
+
+#[derive(Accounts)]
+pub struct Unstake<'info>{
+    // User who is unstaking
     #[account(mut)]
     pub user : Signer<'info>,
 
