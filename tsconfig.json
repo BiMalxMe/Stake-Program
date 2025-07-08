@@ -6,5 +6,12 @@
     "module": "commonjs",
     "target": "es6",
     "esModuleInterop": true
-  }
+  },
+  "include": [
+    "tests/**/*"
+  ],
+  "resolveJsonModule": true,
+  "allowSyntheticDefaultImports": true
+
 }
+ 

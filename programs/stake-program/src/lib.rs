@@ -94,15 +94,9 @@ pub mod stake_program {
         let signer = &[&seeds[..]];
 
         // new transaction from pda to user
-        let cpi_context = CpiContext::new_with_signer(
-            ctx.accounts.system_program.to_account_info(),
-            Transfer {
-                from: ctx.accounts.pda_account.to_account_info(),
-                to: ctx.accounts.user.to_account_info(),
-            },
-            signer,
-        );
-        transfer(cpi_context, amount)?;
+        **ctx.accounts.pda_account.to_account_info().try_borrow_mut_lamports()? -= amount;
+        **ctx.accounts.user.try_borrow_mut_lamports()? += amount;
+        
 
         // update pda staked amount
         ctx.accounts.pda_account.staked_amount = ctx
