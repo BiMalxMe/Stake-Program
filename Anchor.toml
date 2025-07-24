@@ -12,7 +12,7 @@ stake_program = "ELvizMGwAUf3qrBkFQ5HKMmTvPzee5thNRpJ5ko1Ai9J"
 url = "https://api.apr.dev"
 
 [provider]
-cluster = "localnet"
+cluster = "devnet"
 wallet = "~/.config/solana/id.json"
 
 [scripts]

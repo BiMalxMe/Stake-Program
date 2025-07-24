@@ -13,45 +13,53 @@ pub mod stake_program {
     use super::*;
 
     pub fn create_pda_account(ctx: Context<CreatePdaAcc>) -> Result<()> {
-        // getting the mutable reference to the pda
         let pda_account = &mut ctx.accounts.pda_account;
-
-        // gets current blockchain timestamp
         let clock = Clock::get()?;
 
-        // initialize the pda fields
         pda_account.owner = ctx.accounts.payer.key();
         pda_account.staked_amount = 0;
         pda_account.total_points = 0;
-        // sets last update time to now (convert i64 to u64)
         pda_account.last_updated_time = clock.unix_timestamp as u64;
-        // after the creation the bumps are returned here
         pda_account.bump = ctx.bumps.pda_account;
 
-        msg!("Pda account created successfully");
+        msg!("Pda account created successfully for owner: {}", pda_account.owner);
+        msg!("Initial staked_amount: {}, total_points: {}, last_updated_time: {}, bump: {}", 
+            pda_account.staked_amount, 
+            pda_account.total_points, 
+            pda_account.last_updated_time, 
+            pda_account.bump
+        );
         Ok(())
     }
     pub fn stake(ctx: Context<Stake>, amount: u64) -> Result<()> {
-        // validate the input
         require!(amount > 0, StakeError::InvalidAmount);
 
         let clock = Clock::get()?;
 
-        // scope mutable borrow of pda_account
         {
             let pda_account = &mut ctx.accounts.pda_account;
 
-            // update points earned so far before changing staked amount
+            msg!("Updating points before staking. Current total_points: {}, last_updated_time: {}", pda_account.total_points, pda_account.last_updated_time);
             update_points(pda_account, clock.unix_timestamp)?;
 
-            // update pda staked amount (optional: move this inside if needed)
+            let prev_staked = pda_account.staked_amount;
             pda_account.staked_amount = pda_account
                 .staked_amount
                 .checked_add(amount)
                 .ok_or(StakeError::Overflow)?;
-        } // mutable borrow ends here
+            msg!(
+                "Staked amount updated from {} to {}",
+                prev_staked,
+                pda_account.staked_amount
+            );
+        }
 
-        // transfer sol from the user to the pda
+        msg!(
+            "Transferring {} lamports from user {} to PDA {}",
+            amount,
+            ctx.accounts.user.key(),
+            ctx.accounts.pda_account.key()
+        );
         let cpi = CpiContext::new(
             ctx.accounts.system_program.to_account_info(),
             Transfer {
@@ -70,35 +78,41 @@ pub mod stake_program {
         Ok(())
     }
     pub fn unstake(ctx: Context<Unstake>, amount: u64) -> Result<()> {
-        // unstake amount should be greater than 0
         require!(amount > 0, StakeError::InvalidAmount);
 
         let clock = Clock::get()?;
 
         {
-            // pda mut ref scoped
             let pda_account = &mut ctx.accounts.pda_account;
 
-            // staked should be greater than withdrawal
+            msg!(
+                "Attempting to unstake {} lamports. Current staked_amount: {}",
+                amount,
+                pda_account.staked_amount
+            );
             require!(
                 pda_account.staked_amount >= amount,
                 StakeError::InsufficientStake
             );
 
-            // update points earned so far before changing staked amount
+            msg!("Updating points before unstaking. Current total_points: {}, last_updated_time: {}", pda_account.total_points, pda_account.last_updated_time);
             update_points(pda_account, clock.unix_timestamp)?;
-        } // mutable borrow ends here
+        }
 
         let binding = ctx.accounts.user.key();
         let seeds = &[b"user1", binding.as_ref(), &[ctx.accounts.pda_account.bump]];
         let signer = &[&seeds[..]];
 
-        // new transaction from pda to user
+        msg!(
+            "Transferring {} lamports from PDA {} to user {}",
+            amount,
+            ctx.accounts.pda_account.key(),
+            ctx.accounts.user.key()
+        );
         **ctx.accounts.pda_account.to_account_info().try_borrow_mut_lamports()? -= amount;
         **ctx.accounts.user.try_borrow_mut_lamports()? += amount;
-        
 
-        // update pda staked amount
+        let prev_staked = ctx.accounts.pda_account.staked_amount;
         ctx.accounts.pda_account.staked_amount = ctx
             .accounts
             .pda_account
@@ -107,9 +121,10 @@ pub mod stake_program {
             .ok_or(StakeError::Underflow)?;
 
         msg!(
-            "Unstaked {} lamports, remaining is {} lamports",
+            "Unstaked {} lamports, remaining is {} lamports (was {})",
             amount,
-            ctx.accounts.pda_account.staked_amount
+            ctx.accounts.pda_account.staked_amount,
+            prev_staked
         );
 
         Ok(())
@@ -119,16 +134,20 @@ pub mod stake_program {
         let pda_account = &mut ctx.accounts.pda_account;
         let clock = Clock::get()?;
 
-        // update points to current time
+        msg!(
+            "Claiming points for user {}. Current total_points: {}, last_updated_time: {}",
+            ctx.accounts.user.key(),
+            pda_account.total_points,
+            pda_account.last_updated_time
+        );
         update_points(pda_account, clock.unix_timestamp)?;
 
-        // convert micro-points to actual points
         let claimable_points = pda_account.total_points / 1_000_000;
 
-        msg!("User has {} claimable points", claimable_points);
+        msg!("User {} has {} claimable points", ctx.accounts.user.key(), claimable_points);
 
-        // reset total_points after claiming
         pda_account.total_points = 0;
+        msg!("total_points reset to 0 after claim");
 
         Ok(())
     }
@@ -137,19 +156,29 @@ pub mod stake_program {
         let pda_account = &ctx.accounts.pda_account;
         let clock = Clock::get()?;
 
-        // calculate pending points without updating account
+        msg!(
+            "Getting points for user {}. Current total_points: {}, last_updated_time: {}, staked_amount: {}",
+            ctx.accounts.user.key(),
+            pda_account.total_points,
+            pda_account.last_updated_time,
+            pda_account.staked_amount
+        );
+
         let time_elapsed = clock
             .unix_timestamp
             .checked_sub(pda_account.last_updated_time as i64)
             .ok_or(StakeError::InvalidTimestamp)? as u64;
 
+        msg!("Time elapsed since last update: {} seconds", time_elapsed);
+
         let new_points = calculate_points_earned(pda_account.staked_amount, time_elapsed)?;
+        msg!("New points earned since last update: {}", new_points);
+
         let current_total_points = pda_account
             .total_points
             .checked_add(new_points)
             .ok_or(StakeError::Overflow)?;
 
-        // convert micro-points to actual points
         msg!(
             "Current points: {}, Staked amount: {} SOL",
             current_total_points / 1_000_000,
@@ -166,20 +195,37 @@ fn update_points(pda_account: &mut StakeAccount, current_time: i64) -> Result<()
         .checked_sub(pda_account.last_updated_time as i64)
         .ok_or(StakeError::InvalidTimestamp)? as u64;
 
+    msg!(
+        "update_points called. time_elapsed: {}, staked_amount: {}, total_points before: {}",
+        time_elapsed,
+        pda_account.staked_amount,
+        pda_account.total_points
+    );
+
     if time_elapsed > 0 && pda_account.staked_amount > 0 {
         let new_points = calculate_points_earned(pda_account.staked_amount, time_elapsed)?;
+        msg!("Calculated new_points: {}", new_points);
         pda_account.total_points = pda_account
             .total_points
             .checked_add(new_points)
             .ok_or(StakeError::Overflow)?;
+        msg!("total_points after update: {}", pda_account.total_points);
+    } else {
+        msg!("No points updated (either no time elapsed or staked_amount is zero)");
     }
 
     pda_account.last_updated_time = current_time as u64;
+    msg!("last_updated_time set to {}", pda_account.last_updated_time);
     Ok(())
 }
 
 //  helper: core reward calculation
 fn calculate_points_earned(staked_amount: u64, time_elapsed_seconds: u64) -> Result<u64> {
+    msg!(
+        "Calculating points earned. staked_amount: {}, time_elapsed_seconds: {}",
+        staked_amount,
+        time_elapsed_seconds
+    );
     let points = (staked_amount as u128)
         .checked_mul(time_elapsed_seconds as u128)
         .ok_or(StakeError::Overflow)?
@@ -189,6 +235,8 @@ fn calculate_points_earned(staked_amount: u64, time_elapsed_seconds: u64) -> Res
         .ok_or(StakeError::Overflow)?
         .checked_div(SECONDS_PER_DAY as u128)
         .ok_or(StakeError::Overflow)?;
+
+    msg!("Points earned (micropoints): {}", points);
 
     Ok(points as u64)
 }
@@ -205,11 +253,9 @@ pub struct StakeAccount {
 
 #[derive(Accounts)]
 pub struct CreatePdaAcc<'info> {
-    // user paying for the account creation
     #[account(mut)]
     pub payer: Signer<'info>,
 
-    // initialize the pda account
     #[account(
         init,
         payer = payer,
@@ -222,11 +268,9 @@ pub struct CreatePdaAcc<'info> {
 }
 #[derive(Accounts)]
 pub struct Stake<'info> {
-    //user who is staking
     #[account(mut)]
     pub user: Signer<'info>,
 
-    //users pda accoutn
     #[account(
         mut,
         seeds = [b"user1", user.key().as_ref()],
@@ -235,17 +279,14 @@ pub struct Stake<'info> {
     )]
     pub pda_account: Account<'info, StakeAccount>,
 
-    //for transferring sol
     pub system_program: Program<'info, System>,
 }
 
 #[derive(Accounts)]
 pub struct Unstake<'info> {
-    // user who is unstaking
     #[account(mut)]
     pub user: Signer<'info>,
 
-    //users pda accoutn
     #[account(
         mut,
         seeds = [b"user1", user.key().as_ref()],
@@ -254,16 +295,13 @@ pub struct Unstake<'info> {
     )]
     pub pda_account: Account<'info, StakeAccount>,
 
-    //for transferring sol
     pub system_program: Program<'info, System>,
 }
 #[derive(Accounts)]
 pub struct ClaimPoints<'info> {
-    // user claiming points
     #[account(mut)]
     pub user: Signer<'info>,
 
-    // user's pda account
     #[account(
         mut,
         seeds = [b"user1", user.key().as_ref()],
