@@ -1,7 +1,7 @@
 use anchor_lang::prelude::*;
 use anchor_lang::system_program::{transfer, Transfer};
 
-declare_id!("ELvizMGwAUf3qrBkFQ5HKMmTvPzee5thNRpJ5ko1Ai9J");
+declare_id!("6wjCHbb4fJivBCesGtUmPEdHRVKaQFa5v1KDZCXC9TGo");
 
 const SOLANA_PER_DAY: u64 = 1_000_000; // micropoiints
 const SECONDS_PER_DAY: u64 = 86_400;
