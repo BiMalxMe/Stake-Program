@@ -9,6 +9,8 @@ import {
   LAMPORTS_PER_SOL,
 } from "@solana/web3.js";
 
+
+//main test file to test the stake program
 describe("Stake Program", () => {
   const provider = anchor.AnchorProvider.env();
   anchor.setProvider(provider);

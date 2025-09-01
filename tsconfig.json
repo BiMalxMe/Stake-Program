@@ -1,4 +1,5 @@
 {
+  //main tsconfig file
   "compilerOptions": {
     "types": ["mocha", "chai"],
     "typeRoots": ["./node_modules/@types"],

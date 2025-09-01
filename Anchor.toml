@@ -5,6 +5,7 @@ package_manager = "yarn"
 resolution = true
 skip-lint = false
 
+# //deployed program id for stake program
 [programs.localnet]
 stake_program = "ELvizMGwAUf3qrBkFQ5HKMmTvPzee5thNRpJ5ko1Ai9J"
 

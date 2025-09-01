@@ -2,9 +2,12 @@
 // single deploy script that's invoked from the CLI, injecting a provider
 // configured from the workspace's Anchor.toml.
 
+
+//unchanged its a boilerplate
 import * as anchor from "@coral-xyz/anchor";
 
 module.exports = async function (provider: anchor.AnchorProvider) {
+
   // Configure client to use the provider.
   anchor.setProvider(provider);
 
