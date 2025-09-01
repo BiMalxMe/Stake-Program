@@ -7,7 +7,7 @@ This project was built as a submission for the **Superteam Nepal Solana Mini-Hac
 ---
 
 ## 🎥 Demo Video
-👉 [Watch on YouTube](https://youtu.be/iWgUivVBK4M)
+👉 [Watch on YouTube](https://youtu.be/kELW__kL0S4)
 
 
 ---
